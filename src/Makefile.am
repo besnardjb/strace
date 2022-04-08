@@ -51,7 +51,7 @@ disable_ptrace_get_syscall_info_LDADD = $(strace_LDADD)
 disable_ptrace_getregset_LDADD = $(strace_LDADD)
 
 noinst_LIBRARIES = libstrace.a
-libstrace_a_CPPFLAGS = $(strace_CPPFLAGS)
+libstrace_a_CPPFLAGS = $(strace_CPPFLAGS) $(TAUINST_CFLAGS)
 libstrace_a_CFLAGS = $(strace_CFLAGS)
 libstrace_a_SOURCES =	\
 	access.c	\
@@ -448,7 +448,7 @@ endif
 
 strace_CPPFLAGS += $(CODE_COVERAGE_CPPFLAGS)
 strace_CFLAGS += $(CODE_COVERAGE_CFLAGS)
-strace_LDADD += $(CODE_COVERAGE_LIBS)
+strace_LDADD += $(CODE_COVERAGE_LIBS) $(TAUINST_LIBS)
 
 # Enable this to get link map generated
 #strace_LDFLAGS += -Wl,-Map=strace.mapfile

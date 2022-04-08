@@ -810,6 +810,17 @@ AM_CONDITIONAL([ENABLE_INSTALL_TESTS], [test x$enable_install_tests = xyes])
 AX_VALGRIND_DFLT([sgcheck], [off])
 AX_VALGRIND_CHECK
 
+
+PKG_CHECK_MODULES([TAUINST], [taumetricproxy], [HAS_TAU_METRIC=1], [HAS_TAU_METRIC=0])
+
+if test "${HAS_TAU_METRIC}" = "1"; then
+	AC_DEFINE([TAU_METRIC_PROXY_ENABLED], [], [TAU Metric Proxy is to be built])
+fi
+
+AC_SUBST([TAUINST_CFLAGS])
+AC_SUBST([TAUINST_LIBS])
+
+
 AC_CONFIG_FILES([Makefile
 		 bundled/Makefile
 		 debian/changelog
