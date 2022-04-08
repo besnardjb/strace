@@ -15,8 +15,13 @@
  */
 
 #include "defs.h"
+#include "sen.h"
 
 #include <stdarg.h>
+
+#ifdef TAU_METRIC_PROXY_ENABLED
+#include <tau_metric_proxy_client.h>
+#endif
 
 /* Per-syscall stats structure */
 struct call_counts {
@@ -99,9 +104,171 @@ static const struct {
 	{ "nothing",      CSC_NONE       },
 };
 
+#ifdef TAU_METRIC_PROXY_ENABLED
+
+static void
+tau_metric_handle_ios(struct tcb *tcp)
+{
+	static tau_metric_counter_t * scall_array_size = NULL;
+	static tau_metric_counter_t total_read = NULL;
+	static tau_metric_counter_t total_write = NULL;
+	char key[128];
+	char doc[256];
+
+	if (syserror(tcp))
+		return;	
+
+	if(!scall_array_size)
+	{
+		scall_array_size = xcalloc(nsyscalls, sizeof(tau_metric_counter_t));
+
+		snprintf(key, 128, "strace_total_read_size");
+		snprintf(doc, 128, "Total read size");
+		total_read = tau_metric_counter_new(key, doc);
+
+		snprintf(key, 128, "strace_total_write_size");
+		snprintf(doc, 128, "Total write size");
+		total_write = tau_metric_counter_new(key, doc);
+	}
+
+	size_t write_size = 0;
+
+	switch (tcp_sysent(tcp)->sen)
+	{
+		case SEN_write:
+		case SEN_pwrite:
+		case SEN_send:
+		case SEN_sendto:
+		case SEN_mq_timedsend_time32:
+		case SEN_mq_timedsend_time64:
+			write_size = tcp->u_arg[2];
+			break;
+		case SEN_writev:
+		case SEN_pwritev:
+		case SEN_pwritev2:
+		case SEN_vmsplice:
+			fprintf(stderr, "TAU_METRIC_PROXY : discarded bytes for %s (iovec support missing)\n", tcp_sysent(tcp)->sys_name);
+			//dumpiov_upto(tcp, tcp->u_arg[2], tcp->u_arg[1], -1);
+			break;
+		case SEN_sendmsg:
+			write_size  = tcp->u_rval;
+			//dumpiov_in_msghdr(tcp, tcp->u_arg[1], -1);
+			break;
+		case SEN_sendmmsg:
+			fprintf(stderr, "TAU_METRIC_PROXY : discarded bytes for %s (iovec support missing)\n", tcp_sysent(tcp)->sys_name);
+			//dumpiov_in_mmsghdr(tcp, tcp->u_arg[1]);
+			break;
+	}
+
+	size_t read_size = 0;
+
+	switch (tcp_sysent(tcp)->sen)
+	{
+		case SEN_readv:
+		case SEN_preadv:
+		case SEN_preadv2:
+		case SEN_read:
+		case SEN_pread:
+		case SEN_recv:
+		case SEN_recvfrom:
+		case SEN_mq_timedreceive_time32:
+		case SEN_mq_timedreceive_time64:
+		case SEN_recvmsg:
+
+			read_size = tcp->u_rval;
+			return;
+
+		case SEN_recvmmsg:
+		case SEN_recvmmsg_time32:
+		case SEN_recvmmsg_time64:
+			fprintf(stderr, "TAU_METRIC_PROXY : discarded bytes for %s (iovec support missing)\n", tcp_sysent(tcp)->sys_name);
+			return;
+	}
+
+	size_t call_size = write_size + read_size;
+
+	if(call_size > 0)
+	{
+		tau_metric_counter_t target_scal_size = scall_array_size[tcp->scno];
+
+
+		if(!target_scal_size)
+		{
+			const char * scall_name = tcp_sysent(tcp)->sys_name;
+			snprintf(key, 128, "strace_%s_size", scall_name);
+			snprintf(doc, 128, "Total bytes size for %s", scall_name);
+			scall_array_size[tcp->scno] = target_scal_size = tau_metric_counter_new(key, doc);
+		}
+
+		tau_metric_counter_incr(target_scal_size, call_size);
+	
+	
+		if(write_size > 0)
+		{
+			tau_metric_counter_incr(total_write, write_size);
+		}
+		
+		if(read_size > 0)
+		{
+			tau_metric_counter_incr(total_read, read_size);
+		}
+	
+	}
+
+
+}
+
+
+static void
+tau_metric_proxy_handler(struct tcb *tcp, const struct timespec *wts)
+{
+	static tau_metric_counter_t * scall_array_hits = NULL;
+	static tau_metric_counter_t * scall_array_time = NULL;
+
+
+	if(!scall_array_hits)
+	{
+		scall_array_hits = xcalloc(nsyscalls, sizeof(tau_metric_counter_t));
+		scall_array_time = xcalloc(nsyscalls, sizeof(tau_metric_counter_t));
+
+	}
+
+	tau_metric_counter_t target_syscall_hits = scall_array_hits[tcp->scno];
+	tau_metric_counter_t target_syscall_time = scall_array_time[tcp->scno];
+
+
+	if(!target_syscall_hits)
+	{
+		const char * scall_name = tcp_sysent(tcp)->sys_name;
+		char key[128];
+		char doc[256];
+		snprintf(key, 128, "strace_%s_hits", scall_name);
+		snprintf(doc, 128, "Number of calls for %s", scall_name);
+		scall_array_hits[tcp->scno] = tau_metric_counter_new(key, doc);
+		snprintf(key, 128, "strace_%s_time", scall_name);
+		snprintf(doc, 128, "Time spent in %s", scall_name);
+		scall_array_time[tcp->scno] = tau_metric_counter_new(key, doc);
+
+		target_syscall_hits = scall_array_hits[tcp->scno];
+		target_syscall_time = scall_array_time[tcp->scno];
+	}
+
+
+	tau_metric_counter_incr(target_syscall_hits, 1.0);
+	tau_metric_counter_incr(target_syscall_time, wts->tv_sec + 1e-9*wts->tv_nsec);
+
+	tau_metric_handle_ios(tcp);
+
+	//fprintf(stderr, "LOL %s (%ld/%d)\n", tcp_sysent(tcp)->sys_name, tcp->scno, nsyscalls);
+
+}
+#endif /* TAU_METRIC_PROXY_ENABLED */
+
 void
 count_syscall(struct tcb *tcp, const struct timespec *syscall_exiting_ts)
 {
+
+
 	if (!scno_in_range(tcp->scno))
 		return;
 
@@ -129,6 +296,10 @@ count_syscall(struct tcb *tcp, const struct timespec *syscall_exiting_ts)
 	ts_sub(&wts, &wts, &overhead);
 
 	const struct timespec *wts_nonneg = ts_max(&wts, &zero_ts);
+
+#ifdef TAU_METRIC_PROXY_ENABLED
+	tau_metric_proxy_handler(tcp, wts_nonneg);
+#endif /* TAU_METRIC_PROXY_ENABLED */
 
 	ts_add(&cc->time, &cc->time, wts_nonneg);
 	cc->time_min = *ts_min(&cc->time_min, wts_nonneg);
