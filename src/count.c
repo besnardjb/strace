@@ -122,11 +122,11 @@ tau_metric_handle_ios(struct tcb *tcp)
 	{
 		scall_array_size = xcalloc(nsyscalls, sizeof(tau_metric_counter_t));
 
-		snprintf(key, 128, "strace_total_read_size");
+		snprintf(key, 128, "strace_read_size_total");
 		snprintf(doc, 128, "Total read size");
 		total_read = tau_metric_counter_new(key, doc);
 
-		snprintf(key, 128, "strace_total_write_size");
+		snprintf(key, 128, "strace_write_size_total");
 		snprintf(doc, 128, "Total write size");
 		total_write = tau_metric_counter_new(key, doc);
 	}
@@ -139,9 +139,10 @@ tau_metric_handle_ios(struct tcb *tcp)
 		case SEN_pwrite:
 		case SEN_send:
 		case SEN_sendto:
+		case SEN_sendmsg:
 		case SEN_mq_timedsend_time32:
 		case SEN_mq_timedsend_time64:
-			write_size = tcp->u_arg[2];
+			write_size  = tcp->u_rval;
 			break;
 		case SEN_writev:
 		case SEN_pwritev:
@@ -149,10 +150,6 @@ tau_metric_handle_ios(struct tcb *tcp)
 		case SEN_vmsplice:
 			fprintf(stderr, "TAU_METRIC_PROXY : discarded bytes for %s (iovec support missing)\n", tcp_sysent(tcp)->sys_name);
 			//dumpiov_upto(tcp, tcp->u_arg[2], tcp->u_arg[1], -1);
-			break;
-		case SEN_sendmsg:
-			write_size  = tcp->u_rval;
-			//dumpiov_in_msghdr(tcp, tcp->u_arg[1], -1);
 			break;
 		case SEN_sendmmsg:
 			fprintf(stderr, "TAU_METRIC_PROXY : discarded bytes for %s (iovec support missing)\n", tcp_sysent(tcp)->sys_name);
@@ -176,13 +173,13 @@ tau_metric_handle_ios(struct tcb *tcp)
 		case SEN_recvmsg:
 
 			read_size = tcp->u_rval;
-			return;
+			break;
 
 		case SEN_recvmmsg:
 		case SEN_recvmmsg_time32:
 		case SEN_recvmmsg_time64:
 			fprintf(stderr, "TAU_METRIC_PROXY : discarded bytes for %s (iovec support missing)\n", tcp_sysent(tcp)->sys_name);
-			return;
+			break;
 	}
 
 	size_t call_size = write_size + read_size;
@@ -195,7 +192,7 @@ tau_metric_handle_ios(struct tcb *tcp)
 		if(!target_scal_size)
 		{
 			const char * scall_name = tcp_sysent(tcp)->sys_name;
-			snprintf(key, 128, "strace_%s_size", scall_name);
+			snprintf(key, 128, "strace_size_total{scall=\"%s\"}", scall_name);
 			snprintf(doc, 128, "Total bytes size for %s", scall_name);
 			scall_array_size[tcp->scno] = target_scal_size = tau_metric_counter_new(key, doc);
 		}
@@ -242,11 +239,11 @@ tau_metric_proxy_handler(struct tcb *tcp, const struct timespec *wts)
 		const char * scall_name = tcp_sysent(tcp)->sys_name;
 		char key[128];
 		char doc[256];
-		snprintf(key, 128, "strace_%s_hits", scall_name);
-		snprintf(doc, 128, "Number of calls for %s", scall_name);
+		snprintf(key, 128, "strace_hits_total{scall=\"%s\"}", scall_name);
+		snprintf(doc, 128, "Number of calls for syscall");
 		scall_array_hits[tcp->scno] = tau_metric_counter_new(key, doc);
-		snprintf(key, 128, "strace_%s_time", scall_name);
-		snprintf(doc, 128, "Time spent in %s", scall_name);
+		snprintf(key, 128, "strace_time_total{scall=\"%s\"}", scall_name);
+		snprintf(doc, 128, "Time spent in syscall");
 		scall_array_time[tcp->scno] = tau_metric_counter_new(key, doc);
 
 		target_syscall_hits = scall_array_hits[tcp->scno];
