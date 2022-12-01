@@ -142,18 +142,12 @@ tau_metric_handle_ios(struct tcb *tcp)
 		case SEN_sendmsg:
 		case SEN_mq_timedsend_time32:
 		case SEN_mq_timedsend_time64:
-			write_size  = tcp->u_rval;
-			break;
 		case SEN_writev:
 		case SEN_pwritev:
 		case SEN_pwritev2:
 		case SEN_vmsplice:
-			fprintf(stderr, "TAU_METRIC_PROXY : discarded bytes for %s (iovec support missing)\n", tcp_sysent(tcp)->sys_name);
-			//dumpiov_upto(tcp, tcp->u_arg[2], tcp->u_arg[1], -1);
-			break;
 		case SEN_sendmmsg:
-			fprintf(stderr, "TAU_METRIC_PROXY : discarded bytes for %s (iovec support missing)\n", tcp_sysent(tcp)->sys_name);
-			//dumpiov_in_mmsghdr(tcp, tcp->u_arg[1]);
+			write_size  = tcp->u_rval;
 			break;
 	}
 
@@ -171,14 +165,10 @@ tau_metric_handle_ios(struct tcb *tcp)
 		case SEN_mq_timedreceive_time32:
 		case SEN_mq_timedreceive_time64:
 		case SEN_recvmsg:
-
-			read_size = tcp->u_rval;
-			break;
-
 		case SEN_recvmmsg:
 		case SEN_recvmmsg_time32:
 		case SEN_recvmmsg_time64:
-			fprintf(stderr, "TAU_METRIC_PROXY : discarded bytes for %s (iovec support missing)\n", tcp_sysent(tcp)->sys_name);
+			read_size = tcp->u_rval;
 			break;
 	}
 
@@ -198,18 +188,17 @@ tau_metric_handle_ios(struct tcb *tcp)
 		}
 
 		tau_metric_counter_incr(target_scal_size, call_size);
-	
-	
+
 		if(write_size > 0)
 		{
 			tau_metric_counter_incr(total_write, write_size);
 		}
-		
+
 		if(read_size > 0)
 		{
 			tau_metric_counter_incr(total_read, read_size);
 		}
-	
+
 	}
 
 
