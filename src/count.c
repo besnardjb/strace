@@ -178,7 +178,6 @@ tau_metric_handle_ios(struct tcb *tcp)
 	{
 		tau_metric_counter_t target_scal_size = scall_array_size[tcp->scno];
 
-
 		if(!target_scal_size)
 		{
 			const char * scall_name = tcp_sysent(tcp)->sys_name;
@@ -187,16 +186,23 @@ tau_metric_handle_ios(struct tcb *tcp)
 			scall_array_size[tcp->scno] = target_scal_size = tau_metric_counter_new(key, doc);
 		}
 
-		tau_metric_counter_incr(target_scal_size, call_size);
+		int has_size = 0;
 
 		if(write_size > 0)
 		{
+			has_size |= 1;
 			tau_metric_counter_incr(total_write, write_size);
 		}
 
 		if(read_size > 0)
 		{
+			has_size |= 1;
 			tau_metric_counter_incr(total_read, read_size);
+		}
+
+		if(has_size)
+		{
+			tau_metric_counter_incr(target_scal_size, call_size);
 		}
 
 	}
