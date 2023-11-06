@@ -19,8 +19,22 @@
 
 #include <stdarg.h>
 
-#ifdef TAU_METRIC_PROXY_ENABLED
-#include <tau_metric_proxy_client.h>
+
+#ifdef METRIC_PROXY_ENABLED
+#include <metric_proxy_client.h>
+
+static struct MetricProxyClient * __client = NULL;
+
+static struct MetricProxyClient * metric_proxy_get_client(void)
+{
+	if(!__client)
+	{
+		__client = metric_proxy_init();
+	}
+
+	return __client;
+}
+
 #endif
 
 /* Per-syscall stats structure */
@@ -104,14 +118,14 @@ static const struct {
 	{ "nothing",      CSC_NONE       },
 };
 
-#ifdef TAU_METRIC_PROXY_ENABLED
+#ifdef METRIC_PROXY_ENABLED
 
 static void
-tau_metric_handle_ios(struct tcb *tcp)
+metric_proxy_metric_handle_ios(struct tcb *tcp)
 {
-	static tau_metric_counter_t * scall_array_size = NULL;
-	static tau_metric_counter_t total_read = NULL;
-	static tau_metric_counter_t total_write = NULL;
+	static struct MetricProxyValue  ** scall_array_size = NULL;
+	static struct MetricProxyValue  * total_read = NULL;
+	static struct MetricProxyValue  * total_write = NULL;
 	char key[128];
 	char doc[256];
 
@@ -120,15 +134,15 @@ tau_metric_handle_ios(struct tcb *tcp)
 
 	if(!scall_array_size)
 	{
-		scall_array_size = xcalloc(nsyscalls, sizeof(tau_metric_counter_t));
+		scall_array_size = xcalloc(nsyscalls, sizeof(struct MetricProxyValue *));
 
 		snprintf(key, 128, "strace_read_size_total");
 		snprintf(doc, 128, "Total read size");
-		total_read = tau_metric_counter_new(key, doc);
+		total_read = metric_proxy_counter_new(metric_proxy_get_client(), key, doc);
 
 		snprintf(key, 128, "strace_write_size_total");
 		snprintf(doc, 128, "Total write size");
-		total_write = tau_metric_counter_new(key, doc);
+		total_write = metric_proxy_counter_new(metric_proxy_get_client(), key, doc);
 	}
 
 	size_t write_size = 0;
@@ -176,14 +190,14 @@ tau_metric_handle_ios(struct tcb *tcp)
 
 	if(call_size > 0)
 	{
-		tau_metric_counter_t target_scal_size = scall_array_size[tcp->scno];
+		struct MetricProxyValue * target_scal_size = scall_array_size[tcp->scno];
 
 		if(!target_scal_size)
 		{
 			const char * scall_name = tcp_sysent(tcp)->sys_name;
 			snprintf(key, 128, "strace_size_total{scall=\"%s\"}", scall_name);
 			snprintf(doc, 128, "Total bytes size for %s", scall_name);
-			scall_array_size[tcp->scno] = target_scal_size = tau_metric_counter_new(key, doc);
+			scall_array_size[tcp->scno] = target_scal_size = metric_proxy_counter_new(metric_proxy_get_client(), key, doc);
 		}
 
 		int has_size = 0;
@@ -191,18 +205,18 @@ tau_metric_handle_ios(struct tcb *tcp)
 		if(write_size > 0)
 		{
 			has_size |= 1;
-			tau_metric_counter_incr(total_write, write_size);
+			metric_proxy_counter_inc(total_write, write_size);
 		}
 
 		if(read_size > 0)
 		{
 			has_size |= 1;
-			tau_metric_counter_incr(total_read, read_size);
+			metric_proxy_counter_inc(total_read, read_size);
 		}
 
 		if(has_size)
 		{
-			tau_metric_counter_incr(target_scal_size, call_size);
+			metric_proxy_counter_inc(target_scal_size, call_size);
 		}
 
 	}
@@ -212,21 +226,21 @@ tau_metric_handle_ios(struct tcb *tcp)
 
 
 static void
-tau_metric_proxy_handler(struct tcb *tcp, const struct timespec *wts)
+metric_proxy_metric_proxy_handler(struct tcb *tcp, const struct timespec *wts)
 {
-	static tau_metric_counter_t * scall_array_hits = NULL;
-	static tau_metric_counter_t * scall_array_time = NULL;
+	static struct MetricProxyValue ** scall_array_hits = NULL;
+	static struct MetricProxyValue ** scall_array_time = NULL;
 
 
 	if(!scall_array_hits)
 	{
-		scall_array_hits = xcalloc(nsyscalls, sizeof(tau_metric_counter_t));
-		scall_array_time = xcalloc(nsyscalls, sizeof(tau_metric_counter_t));
+		scall_array_hits = xcalloc(nsyscalls, sizeof(struct MetricProxyValue *));
+		scall_array_time = xcalloc(nsyscalls, sizeof(struct MetricProxyValue *));
 
 	}
 
-	tau_metric_counter_t target_syscall_hits = scall_array_hits[tcp->scno];
-	tau_metric_counter_t target_syscall_time = scall_array_time[tcp->scno];
+	struct MetricProxyValue * target_syscall_hits = scall_array_hits[tcp->scno];
+	struct MetricProxyValue * target_syscall_time = scall_array_time[tcp->scno];
 
 
 	if(!target_syscall_hits)
@@ -236,25 +250,25 @@ tau_metric_proxy_handler(struct tcb *tcp, const struct timespec *wts)
 		char doc[256];
 		snprintf(key, 128, "strace_hits_total{scall=\"%s\"}", scall_name);
 		snprintf(doc, 128, "Number of calls for syscall");
-		scall_array_hits[tcp->scno] = tau_metric_counter_new(key, doc);
+		scall_array_hits[tcp->scno] = metric_proxy_counter_new(metric_proxy_get_client(), key, doc);
 		snprintf(key, 128, "strace_time_total{scall=\"%s\"}", scall_name);
 		snprintf(doc, 128, "Time spent in syscall");
-		scall_array_time[tcp->scno] = tau_metric_counter_new(key, doc);
+		scall_array_time[tcp->scno] = metric_proxy_counter_new(metric_proxy_get_client(), key, doc);
 
 		target_syscall_hits = scall_array_hits[tcp->scno];
 		target_syscall_time = scall_array_time[tcp->scno];
 	}
 
 
-	tau_metric_counter_incr(target_syscall_hits, 1.0);
-	tau_metric_counter_incr(target_syscall_time, wts->tv_sec + 1e-9*wts->tv_nsec);
+	metric_proxy_counter_inc(target_syscall_hits, 1.0);
+	metric_proxy_counter_inc(target_syscall_time, wts->tv_sec + 1e-9*wts->tv_nsec);
 
-	tau_metric_handle_ios(tcp);
+	metric_proxy_metric_handle_ios(tcp);
 
 	//fprintf(stderr, "LOL %s (%ld/%d)\n", tcp_sysent(tcp)->sys_name, tcp->scno, nsyscalls);
 
 }
-#endif /* TAU_METRIC_PROXY_ENABLED */
+#endif /* METRIC_PROXY_ENABLED */
 
 void
 count_syscall(struct tcb *tcp, const struct timespec *syscall_exiting_ts)
@@ -289,9 +303,9 @@ count_syscall(struct tcb *tcp, const struct timespec *syscall_exiting_ts)
 
 	const struct timespec *wts_nonneg = ts_max(&wts, &zero_ts);
 
-#ifdef TAU_METRIC_PROXY_ENABLED
-	tau_metric_proxy_handler(tcp, wts_nonneg);
-#endif /* TAU_METRIC_PROXY_ENABLED */
+#ifdef METRIC_PROXY_ENABLED
+	metric_proxy_metric_proxy_handler(tcp, wts_nonneg);
+#endif /* METRIC_PROXY_ENABLED */
 
 	ts_add(&cc->time, &cc->time, wts_nonneg);
 	cc->time_min = *ts_min(&cc->time_min, wts_nonneg);
@@ -667,6 +681,13 @@ call_summary_pers(FILE *outf)
 void
 call_summary(FILE *outf)
 {
+#ifdef METRIC_PROXY_ENABLED
+	if(__client)
+	{
+		metric_proxy_release(__client);
+	}
+#endif
+
 	const unsigned int old_pers = current_personality;
 
 	for (unsigned int i = 0; i < SUPPORTED_PERSONALITIES; ++i) {

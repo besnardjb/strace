@@ -44,6 +44,7 @@
 #include "wait.h"
 #include "secontext.h"
 
+
 /* In some libc, these aren't declared. Do it ourself: */
 extern char **environ;
 extern int optind;
